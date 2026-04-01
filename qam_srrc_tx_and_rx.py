@@ -15,11 +15,11 @@ from scipy.signal import firwin, lfilter
 INTEGER_BITS = 32
 INTEGER_SCALE = 2**INTEGER_BITS
 DATA_SIZE = 2048
-SAMPLES_PER_SYMBOL = 4
+#SAMPLES_PER_SYMBOL = 8
 MODULATED_BITS = 4
-UPSAMPLE_DATA_SIZE = SAMPLES_PER_SYMBOL*DATA_SIZE*(INTEGER_BITS/MODULATED_BITS)
+#UPSAMPLE_DATA_SIZE = SAMPLES_PER_SYMBOL*DATA_SIZE*(INTEGER_BITS/MODULATED_BITS)
 RF_SAMPLE_RATE = 5e+9
-DATA_SAMPLE_RATE = RF_SAMPLE_RATE/SAMPLES_PER_SYMBOL
+#DATA_SAMPLE_RATE = RF_SAMPLE_RATE/SAMPLES_PER_SYMBOL
 
 def prbs_generator(seed_value):
 	mask = 0xFFFFFFFF
@@ -281,10 +281,13 @@ def scalar_rescaling(scalar_data_in, minimum_value, maximum_value):
 
 	return scaled_data_array
 	
+enable_filters = input("Enable filters (Y = yes, N = no )")
+srrc_tap_count = input("Enter number of taps: ")
+cutoff_frequency = input("Enter cutoff frequency: ")
+SAMPLES_PER_SYMBOL = int(input("Enter samples per symbol: "))
+
 DATA_SIZE = 2048
 DURATION = (DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL)/RF_SAMPLE_RATE
-
-enable_filters = input("Enable filters (Y = yes, N = no )")
 
 #----------<<<<<<<<<< STEP 1 >>>>>>>>>>----------
 
@@ -356,11 +359,11 @@ plot_unit_circle(symbol_data_up, 'RANDOM DATA AFTER INTERPOLATION')
 # Pass the data through a srrc filter
 
 if (enable_filters == 'Y'):
-	TX_N = 5										# Filter length (taps)
-	tx_alpha = 0.35									# Roll-off factor
+	TX_N = int(srrc_tap_count)							# Filter length (taps)
+	tx_alpha = 0.35										# Roll-off factor
 	tx_Ts = SAMPLES_PER_SYMBOL	#/RF_SAMPLE_RATE		# Symbol duration
 	tx_Fs = 1	#SAMPLES_PER_SYMBOL/tx_Ts				# Sample rate
-	tx_cutoff_frequency = 2e+9
+	tx_cutoff_frequency = int(cutoff_frequency)
 	tx_srrc_taps = firwin(TX_N, tx_cutoff_frequency, fs=RF_SAMPLE_RATE, window='hamming')
 #	t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
 	
@@ -420,11 +423,11 @@ else:
 
 # Create the other half of the srrc filter
 if (enable_filters == 'Y'):
-	RX_N = 5											# Filter length (taps)
+	RX_N = int(srrc_tap_count)							# Filter length (taps)
 	rx_alpha = 0.35										# Roll-off factor
 	rx_Ts = SAMPLES_PER_SYMBOL	# /RF_SAMPLE_RATE		# Symbol duration
 	rx_Fs = 1	# SAMPLES_PER_SYMBOL/rx_Ts				# Sampling rate (4 samples per symbol)
-	rx_cutoff_frequency = 2e+9
+	rx_cutoff_frequency = int(cutoff_frequency)
 	# Generate filter coefficients and time vector
 	rx_srrc_taps = firwin(TX_N, rx_cutoff_frequency, fs=RF_SAMPLE_RATE, window='hamming')
 #	t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
@@ -538,14 +541,16 @@ start_index = 0
 
 while ((training_pattern_found == False) and (rx_data_index < len(rx_binary_data))):
 	rx_shift_register = (rx_shift_register >> MODULATED_BITS) | (rx_binary_data[rx_data_index] << (INTEGER_BITS-MODULATED_BITS)) 
-	rx_data_index = rx_data_index + 1
 	print('index = ', rx_data_index, 'shift_register = ', hex(rx_shift_register), 'binary data = ', rx_binary_data[rx_data_index])
+	rx_data_index = rx_data_index + 1
 #	char = sys.stdin.read(1)
 
 	if (rx_shift_register == TRAINING_PATTERN):
 		start_index = rx_data_index
 		training_pattern_found = True
 		print('training pattern found')
+	elif (rx_data_index == len(rx_binary_data)):
+		print('training pattern not found')
 
 # Put the nibbles together to get 32 bit words
 rx_data_word = []
