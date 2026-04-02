@@ -20,6 +20,7 @@ MODULATED_BITS = 4
 #UPSAMPLE_DATA_SIZE = SAMPLES_PER_SYMBOL*DATA_SIZE*(INTEGER_BITS/MODULATED_BITS)
 RF_SAMPLE_RATE = 5e+9
 #DATA_SAMPLE_RATE = RF_SAMPLE_RATE/SAMPLES_PER_SYMBOL
+CARRIER_FREQUENCY = 1e+9
 
 def prbs_generator(seed_value):
 	mask = 0xFFFFFFFF
@@ -290,6 +291,7 @@ srrc_tap_count = input("Enter number of taps: ")
 SAMPLES_PER_SYMBOL = int(input("Enter samples per symbol: "))
 rolloff_factor = float(input("Enter the roll-off factor: "))
 phase_offset = int(input("Enter the number of clock shifts: "))
+enable_carrier = input("Enable carrier signals (Y = yes, N = no)")
 
 DATA_SIZE = 2048
 DURATION = (DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL)/RF_SAMPLE_RATE
@@ -400,10 +402,14 @@ if (enable_filters == 'Y'):
 	# Eliminate the group delay
  
 	tx_reduced = []
+	tx_reduced_i = []
+	tx_reduced_q = []
 
 #	for i in range(TX_N-1, DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL+TX_N-1):
 	for i in range(TX_N-1, len(symbol_data_filtered_i)):
 		tx_reduced.append(symbol_data_filtered_i[i] + 1j*symbol_data_filtered_q[i])
+		tx_reduced_i.append(symbol_data_filtered_i[i])
+		tx_reduced_q.append(symbol_data_filtered_q[i])
 	
 	plot_unit_circle(tx_reduced, 'TRANSMIT DATA AFTER REDUCTION')
 	print_data_to_file(tx_reduced, 'tx_reduced.txt')
@@ -419,14 +425,45 @@ else:
 	symbol_data_filtered_q = tx_symbol_data_q
 
 	tx_reduced = []
+	tx_reduced_i = []
+	tx_reduced_q = []
 
 	for i in range(0, DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL):
 		tx_reduced.append(symbol_data_filtered_i[i] + 1j*symbol_data_filtered_q[i])
+		tx_reduced_i.append(symbol_data_filtered_i[i])
+		tx_reduced_q.append(symbol_data_filtered_q[i])
 
-	print_data_to_file(tx_reduced, 'tx_reduced.txt')
-	print('length of tx_reduced = ', len(tx_reduced))
+print_data_to_file(tx_reduced, 'tx_reduced.txt')
+print('length of tx_reduced = ', len(tx_reduced))
 
 #----------<<<<<<<<<< STEP 6 >>>>>>>>>>----------
+
+if (enable_carrier == 'Y'):
+	# TRANSMIT SIDE
+	# Upconvert the filtered data with a high frequency carrier
+	tx_t = np.linspace(0, len(tx_reduced_i)/RF_SAMPLE_RATE, len(tx_reduced_i), endpoint=False)
+	carrier_signal_i = 1 * np.sin(2 * np.pi * CARRIER_FREQUENCY * tx_t)
+	carrier_signal_q = 1 * np.cos(2 * np.pi * CARRIER_FREQUENCY * tx_t)
+
+	transmitter_i = tx_reduced_i * carrier_signal_i
+	transmitter_q = tx_reduced_q * carrier_signal_q
+
+	transmitted_signal = transmitter_i + transmitter_q
+	
+	# RECEIVE SIDE
+	rx_t = np.linspace(0, len(transmitted_signal)/RF_SAMPLE_RATE, len(transmitted_signal), endpoint=False)
+	local_oscillator_i = 1 * np.sin(2 * np.pi * CARRIER_FREQUENCY * rx_t)
+	local_oscillator_q = 1 * np.cos(2 * np.pi * CARRIER_FREQUENCY * rx_t)
+	
+	received_signal_i = transmitted_signal * local_oscillator_i
+	received_signal_q = transmitted_signal * local_oscillator_q
+	
+	# Convert to complex
+	received_signal_complex = [complex(i, q) for i, q in zip(received_signal_i, received_signal_q)]
+else:
+	transmitter_i = tx_reduced_i
+	transmitter_q = tx_reduced_q
+	received_signal_complex = [complex(i, q) for i, q in zip(tx_reduced_i, tx_reduced_q)]
 
 # Create the other half of the srrc filter
 if (enable_filters == 'Y'):
@@ -450,8 +487,8 @@ if (enable_filters == 'Y'):
 	print_data_to_file(rx_srrc_taps, 'rx_srrc_taps.txt')
 
 	for i in range(0, DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL-(RX_N-1)):
-		rx_symbol_data_i.append(tx_reduced[i].real)
-		rx_symbol_data_q.append(tx_reduced[i].imag)
+		rx_symbol_data_i.append(received_signal_complex[i].real)
+		rx_symbol_data_q.append(received_signal_complex[i].imag)
 
 #	rx_filtered_signal_i = lfilter(rx_srrc_taps_normalized, [1.0], rx_symbol_data_i)
 #	rx_filtered_signal_q = lfilter(rx_srrc_taps_normalized, [1.0], rx_symbol_data_q)
