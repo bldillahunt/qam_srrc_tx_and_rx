@@ -1,7 +1,12 @@
 {
   "Version": 1,
   "WorkspaceRootPath": "C:\\Users\\ambig\\source\\repos\\qam_srrc_tx_and_rx\\",
-  "Documents": [],
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{7A66220D-C257-4222-B377-FCB1BC043290}|qam_srrc_tx_and_rx.pyproj|C:\\Users\\ambig\\source\\repos\\qam_srrc_tx_and_rx\\qam_srrc_tx_and_rx.py||{8B382828-6202-11D1-8870-0000F87579D2}|",
+      "RelativeMoniker": "D:0:0:{7A66220D-C257-4222-B377-FCB1BC043290}|qam_srrc_tx_and_rx.pyproj|solutionrelative:qam_srrc_tx_and_rx.py||{8B382828-6202-11D1-8870-0000F87579D2}|"
+    }
+  ],
   "DocumentGroupContainers": [
     {
       "Orientation": 0,
@@ -9,7 +14,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": -1,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Bookmark",
@@ -18,6 +23,19 @@
             {
               "$type": "Bookmark",
               "Name": "ST:0:0:{cce594b6-0c39-4442-ba28-10c64ac7e89f}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "qam_srrc_tx_and_rx.py",
+              "DocumentMoniker": "C:\\Users\\ambig\\source\\repos\\qam_srrc_tx_and_rx\\qam_srrc_tx_and_rx.py",
+              "RelativeDocumentMoniker": "qam_srrc_tx_and_rx.py",
+              "ToolTip": "C:\\Users\\ambig\\source\\repos\\qam_srrc_tx_and_rx\\qam_srrc_tx_and_rx.py",
+              "RelativeToolTip": "qam_srrc_tx_and_rx.py",
+              "ViewState": "AgIAACsCAAAAAAAAAAAuwEMCAAAhAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-04-01T22:01:19.527Z",
+              "EditorCaption": ""
             }
           ]
         }

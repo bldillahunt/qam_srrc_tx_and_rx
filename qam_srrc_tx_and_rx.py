@@ -280,11 +280,16 @@ def scalar_rescaling(scalar_data_in, minimum_value, maximum_value):
 #	char = sys.stdin.read(1)
 
 	return scaled_data_array
-	
+
+# Note: The actual data throughput will be RF_SAMPLE_RATE/SAMPLES_PER_SYMBOL
+# The cutoff frequency should be greater than the symbol rate but less than the carrier
+
 enable_filters = input("Enable filters (Y = yes, N = no )")
 srrc_tap_count = input("Enter number of taps: ")
-cutoff_frequency = input("Enter cutoff frequency: ")
+#cutoff_frequency = input("Enter cutoff frequency: ")
 SAMPLES_PER_SYMBOL = int(input("Enter samples per symbol: "))
+rolloff_factor = float(input("Enter the roll-off factor: "))
+phase_offset = int(input("Enter the number of clock shifts: "))
 
 DATA_SIZE = 2048
 DURATION = (DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL)/RF_SAMPLE_RATE
@@ -360,12 +365,12 @@ plot_unit_circle(symbol_data_up, 'RANDOM DATA AFTER INTERPOLATION')
 
 if (enable_filters == 'Y'):
 	TX_N = int(srrc_tap_count)							# Filter length (taps)
-	tx_alpha = 0.35										# Roll-off factor
-	tx_Ts = SAMPLES_PER_SYMBOL	#/RF_SAMPLE_RATE		# Symbol duration
-	tx_Fs = 1	#SAMPLES_PER_SYMBOL/tx_Ts				# Sample rate
-	tx_cutoff_frequency = int(cutoff_frequency)
-	tx_srrc_taps = firwin(TX_N, tx_cutoff_frequency, fs=RF_SAMPLE_RATE, window='hamming')
-#	t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
+	tx_alpha = rolloff_factor							# Roll-off factor
+	tx_Ts = SAMPLES_PER_SYMBOL/RF_SAMPLE_RATE			# Symbol duration
+	tx_Fs = RF_SAMPLE_RATE				# Sample rate
+#	tx_cutoff_frequency = int(cutoff_frequency)
+#	tx_srrc_taps = firwin(TX_N, tx_cutoff_frequency, fs=RF_SAMPLE_RATE, window='hamming')
+	tx_t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
 	
 	print_data_to_file(tx_srrc_taps, 'tx_srrc_taps.txt')
 
@@ -378,14 +383,16 @@ if (enable_filters == 'Y'):
 	tx_symbol_data_i = []	
 	tx_symbol_data_q = []
 
+	# Separate the I and Q data
 	for i in range(0, DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL):
 		tx_symbol_data_i.append(symbol_data_up[i].real)
 		tx_symbol_data_q.append(symbol_data_up[i].imag)
 
-	symbol_data_filtered_i = lfilter(tx_srrc_taps_normalized, [1.0], tx_symbol_data_i)
-	symbol_data_filtered_q = lfilter(tx_srrc_taps_normalized, [1.0], tx_symbol_data_q)
-#	symbol_data_filtered_i = np.convolve(tx_symbol_data_i, tx_srrc_taps_normalized, mode='full')
-#	symbol_data_filtered_q = np.convolve(tx_symbol_data_q, tx_srrc_taps_normalized, mode='full')
+	# Pass the symbol data through the filter
+#	symbol_data_filtered_i = lfilter(tx_srrc_taps_normalized, [1.0], tx_symbol_data_i)
+#	symbol_data_filtered_q = lfilter(tx_srrc_taps_normalized, [1.0], tx_symbol_data_q)
+	symbol_data_filtered_i = np.convolve(tx_symbol_data_i, tx_srrc_taps_normalized, mode='full')
+	symbol_data_filtered_q = np.convolve(tx_symbol_data_q, tx_srrc_taps_normalized, mode='full')
 
 	print_data_to_file(symbol_data_filtered_i, 'transmit_symbol_data_filtered_i.txt')
 	print_data_to_file(symbol_data_filtered_q, 'transmit_symbol_data_filtered_q.txt')
@@ -424,13 +431,13 @@ else:
 # Create the other half of the srrc filter
 if (enable_filters == 'Y'):
 	RX_N = int(srrc_tap_count)							# Filter length (taps)
-	rx_alpha = 0.35										# Roll-off factor
-	rx_Ts = SAMPLES_PER_SYMBOL	# /RF_SAMPLE_RATE		# Symbol duration
-	rx_Fs = 1	# SAMPLES_PER_SYMBOL/rx_Ts				# Sampling rate (4 samples per symbol)
-	rx_cutoff_frequency = int(cutoff_frequency)
+	rx_alpha = rolloff_factor							# Roll-off factor
+	rx_Ts = SAMPLES_PER_SYMBOL/RF_SAMPLE_RATE		# Symbol duration
+	rx_Fs = RF_SAMPLE_RATE				# Sampling rate (4 samples per symbol)
+#	rx_cutoff_frequency = int(cutoff_frequency)
 	# Generate filter coefficients and time vector
-	rx_srrc_taps = firwin(TX_N, rx_cutoff_frequency, fs=RF_SAMPLE_RATE, window='hamming')
-#	t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
+#	rx_srrc_taps = firwin(TX_N, rx_cutoff_frequency, fs=RF_SAMPLE_RATE, window='hamming')
+	rx_t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
 
 	# Normalize the coefficients
 	rx_srrc_taps_normalized = scalar_rescaling(rx_srrc_taps, 0, 1)
@@ -446,10 +453,10 @@ if (enable_filters == 'Y'):
 		rx_symbol_data_i.append(tx_reduced[i].real)
 		rx_symbol_data_q.append(tx_reduced[i].imag)
 
-	rx_filtered_signal_i = lfilter(rx_srrc_taps_normalized, [1.0], rx_symbol_data_i)
-	rx_filtered_signal_q = lfilter(rx_srrc_taps_normalized, [1.0], rx_symbol_data_q)
-#	rx_filtered_signal_i = np.convolve(rx_symbol_data_i, rx_srrc_taps_normalized, mode='full')
-#	rx_filtered_signal_q = np.convolve(rx_symbol_data_q, rx_srrc_taps_normalized, mode='full')
+#	rx_filtered_signal_i = lfilter(rx_srrc_taps_normalized, [1.0], rx_symbol_data_i)
+#	rx_filtered_signal_q = lfilter(rx_srrc_taps_normalized, [1.0], rx_symbol_data_q)
+	rx_filtered_signal_i = np.convolve(rx_symbol_data_i, rx_srrc_taps_normalized, mode='full')
+	rx_filtered_signal_q = np.convolve(rx_symbol_data_q, rx_srrc_taps_normalized, mode='full')
 
 	# Remove the group delay data
 
@@ -458,7 +465,7 @@ if (enable_filters == 'Y'):
 	rx_reduced_q = []
 
 #	for i in range(RX_N-1, DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL+RX_N-1):
-	for i in range(RX_N-1, len(rx_filtered_signal_i)):
+	for i in range((RX_N-1)+phase_offset, len(rx_filtered_signal_i)):
 		rx_reduced.append(rx_filtered_signal_i[i] + 1j*rx_filtered_signal_q[i])
 		rx_reduced_i.append(rx_filtered_signal_i[i])
 		rx_reduced_q.append(rx_filtered_signal_q[i])
@@ -569,4 +576,14 @@ for i in range(0, int(len(rx_binary_data)/(int(INTEGER_BITS/MODULATED_BITS)))):	
 	rx_data_word.append(binary_shift_register)
 
 print_hex_to_file(rx_data_word, 'rx_data_word.txt')
+
+# Compare the input to the output
+error_count = 0
+
+for i in range(0, len(rx_data_word)-2):
+	if (rx_data_word[i] != random_data[i+2]):
+		print('Data mismatch: i = ', i, 'output data = ', hex(rx_data_word[i]), 'input data = ', hex(random_data[i+2]))
+		error_count = error_count + 1
+
+print('Error count = ', error_count)
 
