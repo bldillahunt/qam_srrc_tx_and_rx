@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import sys
-import matplotlib.pyplot as plt
 from scipy import signal
 import commpy
 from commpy.filters import rrcosfilter
@@ -11,6 +10,7 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 from scipy.signal import firwin, lfilter
+import statistics
 
 INTEGER_BITS = 32
 INTEGER_SCALE = 2**INTEGER_BITS
@@ -20,12 +20,11 @@ MODULATED_BITS = 4
 #UPSAMPLE_DATA_SIZE = SAMPLES_PER_SYMBOL*DATA_SIZE*(INTEGER_BITS/MODULATED_BITS)
 RF_SAMPLE_RATE = 5e+9
 #DATA_SAMPLE_RATE = RF_SAMPLE_RATE/SAMPLES_PER_SYMBOL
-CARRIER_FREQUENCY = 1e+9
 
 def prbs_generator(seed_value):
 	mask = 0xFFFFFFFF
 	# Polynomial = x^32 + x^22 + x^2 + x^1 + 1
-	lfsr_bit	= (seed_value ^ (seed_value >> 10) ^ (seed_value >> 30) ^ (seed_value >> 31)) & 0x1
+	lfsr_bit	= (seed_value >> 31 ^ (seed_value >> 21) ^ (seed_value >> 1) ^ (seed_value >> 0)) & 0x1
 	lfsr_data	= ((seed_value << 1) | (lfsr_bit)) & mask
 #	print('bit = ', lfsr_bit, 'data = ', hex(lfsr_data))
 #	char = sys.stdin.read(1)
@@ -94,7 +93,7 @@ def print_data_to_file(input_data, data_file):
 	with open(data_file, 'w') as f:
 		for item in input_data:
 			f.write(f"{item}\n") # Write each item followed by a newline
-
+	
 def find_likely_coordinates(i_modulated_data, q_modulated_data):
 	constellation_data = [(-1-1j), (-1-3j), (-1+1j), (-1+3j), (-3-1j), (-3-3j), (-3+1j), (-3+3j),	(1-1j), (1-3j),	(1+1j),	(1+3j),	(3-1j),	(3-3j),	(3+1j),	(3+3j)]
 	phase_offsets = []
@@ -103,13 +102,13 @@ def find_likely_coordinates(i_modulated_data, q_modulated_data):
 
 	# Loop through every data sample
 	for i in range(0, len(i_modulated_data)):
-		error_vector = []
+#		error_vector = []
 		error_magnitude = []
 		minimum_error = 2**31
 
 		# Loop through the constellation
 		for j in range(0, 2**MODULATED_BITS):
-			error_vector.append((i_modulated_data[i]-constellation_data[j].real) + 1j*(q_modulated_data[i]-constellation_data[j].imag))
+#			error_vector.append((i_modulated_data[i]-constellation_data[j].real) + 1j*(q_modulated_data[i]-constellation_data[j].imag))
 			error_magnitude.append(math.sqrt((i_modulated_data[i]-constellation_data[j].real)**2 + (q_modulated_data[i]-constellation_data[j].imag)**2))
 
 			if (error_magnitude[j] < minimum_error):
@@ -282,19 +281,149 @@ def scalar_rescaling(scalar_data_in, minimum_value, maximum_value):
 
 	return scaled_data_array
 
+def data_analysis(input_data_i, input_data_q, sps):
+	max_data_i = []
+	max_data_q = []
+	std_dev_i = []
+	std_dev_q = []
+	phase_offset_i = []
+	phase_offset_q = []
+	shift_register_i = np.zeros(sps+1)
+	shift_register_q = np.zeros(sps+1)
+	peak_locations_i = []
+	peak_locations_q = []
+	stddev_shift_register_i = np.zeros(sps+1)
+	stddev_shift_register_q = np.zeros(sps+1)
+	min_std_dev_i = []
+	std_dev_offset_i = []
+	min_std_dev_q = []
+	std_dev_offset_q = []
+	
+	# Create the shift register containing 8 samples
+	for i in range(0, len(input_data_i)):
+#		print('Input data I = ', input_data_i[i], 'Input data Q = ', input_data_q[i])
+		
+		for j in range(0, sps):
+			shift_register_i[j] = shift_register_i[j+1]
+			shift_register_q[j] = shift_register_q[j+1]
+
+		shift_register_i[sps] = input_data_i[i]
+		shift_register_q[sps] = input_data_q[i]
+		
+#		print(shift_register_i)
+#		print(shift_register_q)
+		
+		std_dev_i.append(statistics.stdev(shift_register_i))
+		std_dev_q.append(statistics.stdev(shift_register_q))
+		
+		# Pass the standard deviation values into a shift register
+		for j in range(0, sps):
+			stddev_shift_register_i[j] = stddev_shift_register_i[j+1]
+			stddev_shift_register_q[j] = stddev_shift_register_q[j+1]
+
+		stddev_shift_register_i[sps] = std_dev_i[i]
+		stddev_shift_register_q[sps] = std_dev_q[i]
+		
+		# Find the maximum value
+		max_value_i = 0
+		max_value_q = 0
+		max_index_i = 0
+		max_index_q = 0
+		
+		for j in range(1, len(shift_register_i)):
+			if (np.abs(shift_register_i[j]) > max_value_i):
+				max_value_i = np.abs(shift_register_i[j])
+				max_index_i = j
+			if (np.abs(shift_register_q[j]) > max_value_q):
+				max_value_q = np.abs(shift_register_q[j])
+				max_index_q = j
+		
+		# Find the minimum standard deviation
+		min_stddev_i = 2**31-1
+		min_stddev_q = 2**31-1
+		min_stddev_index_i = 0
+		min_stddev_index_q = 0
+		
+		for j in range(1, len(stddev_shift_register_i)):
+			if (stddev_shift_register_i[j] < min_stddev_i):
+				min_stddev_i = stddev_shift_register_i[j]
+				min_stddev_index_i = j
+
+		for j in range(1, len(stddev_shift_register_q)):
+			if (stddev_shift_register_q[j] < min_stddev_q):
+				min_stddev_q = stddev_shift_register_q[j]
+				min_stddev_index_q = j
+		
+#			print('shift_register_i[j] = ', shift_register_i[j], 'shift_register_q[j] = ', shift_register_q[j])
+#			print('j = ', j, 'max_index_i = ', max_index_i, 'max_value_i = ', max_value_i, 'max index q = ', max_index_q, 'max_value_q = ', max_value_q)
+#			char = sys.stdin.read(1)
+
+#		if (max_index_i == 4):
+		peak_locations_i.append(max_index_i)
+
+#		if (max_index_q == 4):
+		peak_locations_q.append(max_index_q)
+			
+		max_data_i.append(max_value_i)
+		max_data_q.append(max_value_q)
+		phase_offset_i.append(max_index_i)
+		phase_offset_q.append(max_index_q)
+		min_std_dev_i.append(min_stddev_i)
+		std_dev_offset_i.append(min_stddev_index_i)
+		min_std_dev_q.append(min_stddev_q)
+		std_dev_offset_q.append(min_stddev_index_q)
+		
+#		char = sys.stdin.read(1)
+		
+#		print('i = ', i, 'I std dev = ', std_dev_i[i], ' Q std dev = ', std_dev_q[i])
+#		char = sys.stdin.read(1)
+	print_data_to_file(peak_locations_i, 'peak_locations_i.txt')
+	print_data_to_file(peak_locations_q, 'peak_locations_q.txt')	
+	print_data_to_file(std_dev_offset_i, 'std_dev_offset_i.txt')
+	print_data_to_file(std_dev_offset_q, 'std_dev_offset_q.txt')
+	
+	return std_dev_i, std_dev_q, max_data_i, max_data_q, phase_offset_i, phase_offset_q
+
+def generate_rrc_taps(num_taps, alpha, Ts, Fs):
+	# Time vector centered perfectly around zero
+	dt = 1.0 / Fs
+	t = np.arange(-(num_taps - 1) // 2, ((num_taps - 1) // 2) + 1) * dt
+
+	# Root Raised Cosine formula
+	h_rrc = np.zeros_like(t, dtype=float)
+
+	for i, t_val in enumerate(t):
+		if t_val == 0:
+			h_rrc[i] = (1.0 + alpha * (4.0 / np.pi - 1.0))
+		elif alpha > 0 and np.abs(t_val) == Ts / (4.0 * alpha):
+			h_rrc[i] = (alpha / np.sqrt(2.0)) * ((1.0 + 2.0 / np.pi) * np.sin(np.pi / (4.0 * alpha)) + (1.0 - 2.0 / np.pi) * np.cos(np.pi / (4.0 * alpha)))
+		else:
+			h_rrc[i] = (np.sin(np.pi * t_val * (1.0 - alpha) / Ts) + 4.0 * alpha * (t_val / Ts) * np.cos(np.pi * t_val * (1.0 + alpha) / Ts)) / (np.pi * t_val * (1.0 - (4.0 * alpha * t_val / Ts)**2) / Ts)
+
+	# Normalize taps for unity gain
+	h_rrc /= np.sqrt(np.sum(h_rrc**2))
+	return t, h_rrc
+    
 # Note: The actual data throughput will be RF_SAMPLE_RATE/SAMPLES_PER_SYMBOL
 # The cutoff frequency should be greater than the symbol rate but less than the carrier
 
-enable_filters = input("Enable filters (Y = yes, N = no )")
-srrc_tap_count = input("Enter number of taps: ")
+enable_filters = input("Enable filters (Y = yes, N = no ) ")
+filter_span = input("Enter filter span: ")
 #cutoff_frequency = input("Enter cutoff frequency: ")
 SAMPLES_PER_SYMBOL = int(input("Enter samples per symbol: "))
 rolloff_factor = float(input("Enter the roll-off factor: "))
 phase_offset = int(input("Enter the number of clock shifts: "))
-enable_carrier = input("Enable carrier signals (Y = yes, N = no)")
+enable_carrier = input("Enable carrier signals (Y = yes, N = no) ")
+enable_group_delay = input("Enable group delay (Y = yes, N = no) ")
+enable_cross_correlation = input("Enable cross correlation (Y = yes, N = no) ")
 
 DATA_SIZE = 2048
 DURATION = (DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL)/RF_SAMPLE_RATE
+
+if (SAMPLES_PER_SYMBOL == 8):
+	CARRIER_FREQUENCY = 1e+9
+elif (SAMPLES_PER_SYMBOL == 4):
+	CARRIER_FREQUENCY = 1.5e+9
 
 #----------<<<<<<<<<< STEP 1 >>>>>>>>>>----------
 
@@ -303,6 +432,11 @@ DURATION = (DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL)/RF_SA
 
 PREAMBLE = 0xF0F0F0F0
 TRAINING_PATTERN = 0xDEADBEEF
+
+preamble_array = [(PREAMBLE >> i) & 0x0F for i in range(28, -1, -4)]
+training_pattern_array = [(PREAMBLE >> i) & 0x0F for i in range(28, -1, -4)]
+reference_pattern = preamble_array + training_pattern_array
+
 seed_value = 0xFFFFFFFF
 random_data = []
 
@@ -340,6 +474,8 @@ for i in range(0, DATA_SIZE):
 	symbols_array.append(qam16_modulation(binary_data[i]))
 	symbol_register = [complex(s) for s in symbols_array[i]]
 	symbols_array_complex.append(symbol_register)
+	
+	print_data_to_file(symbols_array, 'symbols_array_data.txt');
 
 #----------<<<<<<<<<< STEP 3 >>>>>>>>>>----------
 
@@ -359,6 +495,11 @@ symbol_data_up = np.zeros(len(symbol_data_flat) * SAMPLES_PER_SYMBOL, dtype=comp
 symbol_data_up[::SAMPLES_PER_SYMBOL] = symbol_data_flat
 
 print_data_to_file(symbol_data_up, 'interpolated_random_data.txt')
+
+with open('interpolated_scalar.txt', 'w') as f:
+	for i in range(0, len(symbol_data_up)):
+		print(int(symbol_data_up[i].real), int(symbol_data_up[i].imag), file = f)
+	
 plot_unit_circle(symbol_data_up, 'RANDOM DATA AFTER INTERPOLATION')
 
 #----------<<<<<<<<<< STEP 5 >>>>>>>>>>----------
@@ -366,18 +507,19 @@ plot_unit_circle(symbol_data_up, 'RANDOM DATA AFTER INTERPOLATION')
 # Pass the data through a srrc filter
 
 if (enable_filters == 'Y'):
-	TX_N = int(srrc_tap_count)							# Filter length (taps)
+	TX_N = int(filter_span) * SAMPLES_PER_SYMBOL + 1		# Filter length (taps)
 	tx_alpha = rolloff_factor							# Roll-off factor
 	tx_Ts = SAMPLES_PER_SYMBOL/RF_SAMPLE_RATE			# Symbol duration
 	tx_Fs = RF_SAMPLE_RATE				# Sample rate
-#	tx_cutoff_frequency = int(cutoff_frequency)
-#	tx_srrc_taps = firwin(TX_N, tx_cutoff_frequency, fs=RF_SAMPLE_RATE, window='hamming')
-	tx_t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
+	tx_group_delay = int((TX_N - 1)/2)
+#	tx_t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
+	tx_t, tx_srrc_taps = generate_rrc_taps(TX_N, tx_alpha, tx_Ts, tx_Fs)
 	
 	print_data_to_file(tx_srrc_taps, 'tx_srrc_taps.txt')
 
 	# Normalize the coefficients
-	tx_srrc_taps_normalized = scalar_rescaling(tx_srrc_taps, 0, 1)
+#	tx_srrc_taps_normalized = scalar_rescaling(tx_srrc_taps, 0, 1)
+	tx_srrc_taps_normalized = tx_srrc_taps / np.sqrt(np.sum(tx_srrc_taps**2))
 	#tx_srrc_taps_normalized = tx_srrc_taps
 	
 	print_data_to_file(tx_srrc_taps_normalized, 'tx_srrc_taps_normalized.txt')
@@ -398,18 +540,23 @@ if (enable_filters == 'Y'):
 
 	print_data_to_file(symbol_data_filtered_i, 'transmit_symbol_data_filtered_i.txt')
 	print_data_to_file(symbol_data_filtered_q, 'transmit_symbol_data_filtered_q.txt')
-
+	
 	# Eliminate the group delay
  
 	tx_reduced = []
 	tx_reduced_i = []
 	tx_reduced_q = []
 
-#	for i in range(TX_N-1, DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL+TX_N-1):
-	for i in range(TX_N-1, len(symbol_data_filtered_i)):
-		tx_reduced.append(symbol_data_filtered_i[i] + 1j*symbol_data_filtered_q[i])
-		tx_reduced_i.append(symbol_data_filtered_i[i])
-		tx_reduced_q.append(symbol_data_filtered_q[i])
+	if (enable_group_delay == 'Y'):
+		for i in range(tx_group_delay, len(symbol_data_filtered_i)):
+			tx_reduced.append(symbol_data_filtered_i[i] + 1j*symbol_data_filtered_q[i])
+			tx_reduced_i.append(symbol_data_filtered_i[i])
+			tx_reduced_q.append(symbol_data_filtered_q[i])
+	else:
+		for i in range(0, len(symbol_data_filtered_i)):
+			tx_reduced.append(symbol_data_filtered_i[i] + 1j*symbol_data_filtered_q[i])
+			tx_reduced_i.append(symbol_data_filtered_i[i])
+			tx_reduced_q.append(symbol_data_filtered_q[i])
 	
 	plot_unit_circle(tx_reduced, 'TRANSMIT DATA AFTER REDUCTION')
 	print_data_to_file(tx_reduced, 'tx_reduced.txt')
@@ -467,17 +614,17 @@ else:
 
 # Create the other half of the srrc filter
 if (enable_filters == 'Y'):
-	RX_N = int(srrc_tap_count)							# Filter length (taps)
+	RX_N = int(filter_span) * SAMPLES_PER_SYMBOL + 1	# Filter length (taps)
 	rx_alpha = rolloff_factor							# Roll-off factor
 	rx_Ts = SAMPLES_PER_SYMBOL/RF_SAMPLE_RATE		# Symbol duration
 	rx_Fs = RF_SAMPLE_RATE				# Sampling rate (4 samples per symbol)
-#	rx_cutoff_frequency = int(cutoff_frequency)
-	# Generate filter coefficients and time vector
-#	rx_srrc_taps = firwin(TX_N, rx_cutoff_frequency, fs=RF_SAMPLE_RATE, window='hamming')
-	rx_t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
-
+	rx_group_delay = int((RX_N - 1)/2)
+#	rx_t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
+	rx_t, rx_srrc_taps = generate_rrc_taps(RX_N, rx_alpha, rx_Ts, rx_Fs)
+	
 	# Normalize the coefficients
-	rx_srrc_taps_normalized = scalar_rescaling(rx_srrc_taps, 0, 1)
+#	rx_srrc_taps_normalized = scalar_rescaling(rx_srrc_taps, 0, 1)
+	rx_srrc_taps_normalized = rx_srrc_taps / np.sqrt(np.sum(rx_srrc_taps**2))
 	#rx_srrc_taps_normalized = rx_srrc_taps
 	
 	print_data_to_file(rx_srrc_taps_normalized, 'rx_srrc_taps_normalized.txt')
@@ -495,29 +642,62 @@ if (enable_filters == 'Y'):
 	rx_filtered_signal_i = np.convolve(rx_symbol_data_i, rx_srrc_taps_normalized, mode='full')
 	rx_filtered_signal_q = np.convolve(rx_symbol_data_q, rx_srrc_taps_normalized, mode='full')
 
-	# Remove the group delay data
+	print_data_to_file(rx_filtered_signal_i, 'receive_data_filtered_i.txt')
+	print_data_to_file(rx_filtered_signal_q, 'receive_data_filtered_q.txt')
 
+	rx_std_dev_i, rx_std_dev_q, rx_max_value_i, rx_max_value_q, max_phase_offset_i, max_phase_offset_q = data_analysis(rx_filtered_signal_i, rx_filtered_signal_q, SAMPLES_PER_SYMBOL)
+
+	print_data_to_file(rx_std_dev_i, 'rx_std_dev_i.txt')
+	print_data_to_file(rx_std_dev_q, 'rx_std_dev_q.txt')
+	print_data_to_file(rx_max_value_i, 'rx_max_value_i.txt')
+	print_data_to_file(rx_max_value_q, 'rx_max_value_q.txt')
+	print_data_to_file(max_phase_offset_i, 'max_phase_offset_i.txt')
+	print_data_to_file(max_phase_offset_q, 'max_phase_offset_q.txt')
+
+	# Remove the group delay data
 	rx_reduced = []
 	rx_reduced_i = []
 	rx_reduced_q = []
 
-#	for i in range(RX_N-1, DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL+RX_N-1):
-	for i in range((RX_N-1)+phase_offset, len(rx_filtered_signal_i)):
-		rx_reduced.append(rx_filtered_signal_i[i] + 1j*rx_filtered_signal_q[i])
-		rx_reduced_i.append(rx_filtered_signal_i[i])
-		rx_reduced_q.append(rx_filtered_signal_q[i])
-
+	if (enable_group_delay == 'Y'):
+		for i in range(rx_group_delay+phase_offset, len(rx_filtered_signal_i)):
+			rx_reduced.append(rx_filtered_signal_i[i] + 1j*rx_filtered_signal_q[i])
+			rx_reduced_i.append(rx_filtered_signal_i[i])
+			rx_reduced_q.append(rx_filtered_signal_q[i])
+	else:
+		for i in range(tx_group_delay + rx_group_delay, len(rx_filtered_signal_i)):
+			rx_reduced.append(rx_filtered_signal_i[i] + 1j*rx_filtered_signal_q[i])
+			rx_reduced_i.append(rx_filtered_signal_i[i])
+			rx_reduced_q.append(rx_filtered_signal_q[i])
+	
 	plot_unit_circle(rx_reduced, 'RECEIVE DATA FILTERED AND REDUCED')
-	print_data_to_file(rx_filtered_signal_i, 'receive_data_filtered_i.txt')
-	print_data_to_file(rx_filtered_signal_q, 'receive_data_filtered_q.txt')
 	iq_time_domain_plot(DURATION, RF_SAMPLE_RATE, 'Reduced Data Plot', rx_reduced_i, rx_reduced_q)
 else:
 	rx_reduced = tx_reduced
 
 #----------<<<<<<<<<< STEP 7 >>>>>>>>>>----------
 
-rx_decimated = signal.decimate(rx_reduced, SAMPLES_PER_SYMBOL, ftype='fir', zero_phase=True)
-#rx_decimated = rx_reduced
+#rx_decimated = signal.decimate(rx_reduced, SAMPLES_PER_SYMBOL, ftype='fir', zero_phase=True)
+#decimate_start = 0
+#decimate_stop = decimate_start + DATA_SIZE*8*SAMPLES_PER_SYMBOL
+#i = 0
+
+#not_satisfied = True
+
+#while (not_satisfied):
+#	decimate_start = i
+#	decimate_stop = decimate_start + DATA_SIZE*8*SAMPLES_PER_SYMBOL
+#	rx_decimated = rx_reduced[decimate_start:decimate_stop:SAMPLES_PER_SYMBOL]
+#	plot_unit_circle(rx_decimated, 'DECIMATED RECEIVE DATA')
+#	i = i + 1
+	
+#	if (input("Use this offset? Y or N: ") == 'Y'):
+#		not_satisfied = False
+
+rx_rrc_delay = len(rx_srrc_taps_normalized) // 2
+optimal_offset = rx_rrc_delay % SAMPLES_PER_SYMBOL 
+rx_decimated = rx_reduced[optimal_offset::SAMPLES_PER_SYMBOL]
+
 print_data_to_file(rx_decimated, 'reduced_filtered_data.txt')
 print('length of rx_decimated = ', len(rx_decimated))
 phase_array = []
@@ -565,6 +745,24 @@ iq_time_domain_plot(len(rx_decimated_scaled_i)/RF_SAMPLE_RATE, RF_SAMPLE_RATE, '
 print_data_to_file(rx_decimated_scaled_i, 'rx_decimated_scaled_i.txt')
 print_data_to_file(rx_decimated_scaled_q, 'rx_decimated_scaled_q.txt')
 
+data_file_i = 'rx_complex_data_i.txt'
+with open(data_file_i, 'w') as f:
+	for item in rx_decimated_scaled_i:
+		if (item < 0):
+			item = (int(item*2**23) & ((1 << 64) - 1)) & 0xFFFFFFFF
+		else:
+			item = int(item*2**23)
+		f.write(f"{item:08X}\n") # Write each item followed by a newline
+
+data_file_q = 'rx_complex_data_q.txt'
+with open(data_file_q, 'w') as f:
+	for item in rx_decimated_scaled_q:
+		if (item < 0):
+			item = (int(item*2**23) & ((1 << 64) - 1)) & 0xFFFFFFFF
+		else:
+			item = int(item*2**23)
+		f.write(f"{item:08X}\n") # Write each item followed by a newline
+
 print('length of rx_decimated_scaled_i = ', len(rx_decimated_scaled_i))
 print('length of rx_decimated_scaled_q = ', len(rx_decimated_scaled_q))
 
@@ -583,19 +781,22 @@ rx_data_index = 0
 rx_shift_register = 0
 start_index = 0
 
-while ((training_pattern_found == False) and (rx_data_index < len(rx_binary_data))):
-	rx_shift_register = (rx_shift_register >> MODULATED_BITS) | (rx_binary_data[rx_data_index] << (INTEGER_BITS-MODULATED_BITS)) 
-	print('index = ', rx_data_index, 'shift_register = ', hex(rx_shift_register), 'binary data = ', rx_binary_data[rx_data_index])
-	rx_data_index = rx_data_index + 1
-#	char = sys.stdin.read(1)
+if (enable_cross_correlation == 'N'):
+	while ((training_pattern_found == False) and (rx_data_index < len(rx_binary_data))):
+		rx_shift_register = (rx_shift_register >> MODULATED_BITS) | (rx_binary_data[rx_data_index] << (INTEGER_BITS-MODULATED_BITS)) 
+		print('index = ', rx_data_index, 'shift_register = ', hex(rx_shift_register), 'binary data = ', rx_binary_data[rx_data_index])
+		rx_data_index = rx_data_index + 1
 
-	if (rx_shift_register == TRAINING_PATTERN):
-		start_index = rx_data_index
-		training_pattern_found = True
-		print('training pattern found')
-	elif (rx_data_index == len(rx_binary_data)):
-		print('training pattern not found')
-
+		if (rx_shift_register == TRAINING_PATTERN):
+			start_index = rx_data_index
+			training_pattern_found = True
+			print('training pattern found')
+		elif (rx_data_index == len(rx_binary_data)):
+			print('training pattern not found')
+else:
+	correlation = signal.correlate(rx_binary_data[0:63], reference_pattern, mode='full', method='fft')
+	start_index = np.argmax(np.abs(correlation))
+	
 # Put the nibbles together to get 32 bit words
 rx_data_word = []
 current_index = start_index
