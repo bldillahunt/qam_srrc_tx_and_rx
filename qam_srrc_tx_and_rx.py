@@ -401,7 +401,8 @@ def generate_rrc_taps(num_taps, alpha, Ts, Fs):
 			h_rrc[i] = (np.sin(np.pi * t_val * (1.0 - alpha) / Ts) + 4.0 * alpha * (t_val / Ts) * np.cos(np.pi * t_val * (1.0 + alpha) / Ts)) / (np.pi * t_val * (1.0 - (4.0 * alpha * t_val / Ts)**2) / Ts)
 
 	# Normalize taps for unity gain
-	h_rrc /= np.sqrt(np.sum(h_rrc**2))
+#	h_rrc /= np.sqrt(np.sum(h_rrc**2))
+	h_rrc /= (1.0 / SAMPLES_PER_SYMBOL)
 	return t, h_rrc
     
 # Note: The actual data throughput will be RF_SAMPLE_RATE/SAMPLES_PER_SYMBOL
@@ -589,8 +590,10 @@ if (enable_carrier == 'Y'):
 	# TRANSMIT SIDE
 	# Upconvert the filtered data with a high frequency carrier
 	tx_t = np.linspace(0, len(tx_reduced_i)/RF_SAMPLE_RATE, len(tx_reduced_i), endpoint=False)
-	carrier_signal_i = 1 * np.sin(2 * np.pi * CARRIER_FREQUENCY * tx_t)
-	carrier_signal_q = 1 * np.cos(2 * np.pi * CARRIER_FREQUENCY * tx_t)
+#	carrier_signal_i = 1 * np.sin(2 * np.pi * CARRIER_FREQUENCY * tx_t)
+#	carrier_signal_q = 1 * np.cos(2 * np.pi * CARRIER_FREQUENCY * tx_t)
+	carrier_signal_i = np.cos(2 * np.pi * CARRIER_FREQUENCY * tx_t)
+	carrier_signal_q = -np.sin(2 * np.pi * CARRIER_FREQUENCY * tx_t)
 
 	transmitter_i = tx_reduced_i * carrier_signal_i
 	transmitter_q = tx_reduced_q * carrier_signal_q
@@ -599,8 +602,10 @@ if (enable_carrier == 'Y'):
 	
 	# RECEIVE SIDE
 	rx_t = np.linspace(0, len(transmitted_signal)/RF_SAMPLE_RATE, len(transmitted_signal), endpoint=False)
-	local_oscillator_i = 1 * np.sin(2 * np.pi * CARRIER_FREQUENCY * rx_t)
-	local_oscillator_q = 1 * np.cos(2 * np.pi * CARRIER_FREQUENCY * rx_t)
+#	local_oscillator_i = 1 * np.sin(2 * np.pi * CARRIER_FREQUENCY * rx_t)
+#	local_oscillator_q = 1 * np.cos(2 * np.pi * CARRIER_FREQUENCY * rx_t)
+	local_oscillator_i = 2 * np.cos(2 * np.pi * CARRIER_FREQUENCY * rx_t)
+	local_oscillator_q = -2 * np.sin(2 * np.pi * CARRIER_FREQUENCY * rx_t)
 	
 	received_signal_i = transmitted_signal * local_oscillator_i
 	received_signal_q = transmitted_signal * local_oscillator_q
@@ -719,24 +724,32 @@ print_data_to_file(rx_decimated_q, 'rx_decimated_q.txt')
 
 # Rescaling equation:
 # New value = ((old value - old min)/(old max - old min))x(new max - new min) + new min
-rx_decimated_min_i = np.min(rx_decimated_i)
-rx_decimated_max_i = np.max(rx_decimated_i)
-rx_scale_min_i = -math.sqrt(3**2 + 3**2)
-rx_scale_max_i = math.sqrt(3**2 + 3**2)
+#rx_decimated_min_i = np.min(rx_decimated_i)
+#rx_decimated_max_i = np.max(rx_decimated_i)
+#rx_scale_min_i = -math.sqrt(3**2 + 3**2)
+#rx_scale_max_i = math.sqrt(3**2 + 3**2)
 
-rx_decimated_min_q = np.min(rx_decimated_q)
-rx_decimated_max_q = np.max(rx_decimated_q)
-rx_scale_min_q = -math.sqrt(3**2 + 3**2)
-rx_scale_max_q = math.sqrt(3**2 + 3**2)
+#rx_decimated_min_q = np.min(rx_decimated_q)
+#rx_decimated_max_q = np.max(rx_decimated_q)
+#rx_scale_min_q = -math.sqrt(3**2 + 3**2)
+#rx_scale_max_q = math.sqrt(3**2 + 3**2)
 
-rx_decimated_scaled_i = []
-rx_decimated_scaled_q = []
+#rx_decimated_scaled_i = []
+#rx_decimated_scaled_q = []
 
-for i in range(0, len(rx_decimated_i)):
-	rx_decimated_scaled_i.append(((rx_decimated_i[i]-rx_decimated_min_i)/(rx_decimated_max_i-rx_decimated_min_i))*(rx_scale_max_i - rx_scale_min_i) + rx_scale_min_i)
+#for i in range(0, len(rx_decimated_i)):
+#	rx_decimated_scaled_i.append(((rx_decimated_i[i]-rx_decimated_min_i)/(rx_decimated_max_i-rx_decimated_min_i))*(rx_scale_max_i - rx_scale_min_i) + rx_scale_min_i)
 
-for i in range(0, len(rx_decimated_q)):
-	rx_decimated_scaled_q.append(((rx_decimated_q[i]-rx_decimated_min_q)/(rx_decimated_max_q-rx_decimated_min_q))*(rx_scale_max_q - rx_scale_min_q) + rx_scale_min_q)
+#for i in range(0, len(rx_decimated_q)):
+#	rx_decimated_scaled_q.append(((rx_decimated_q[i]-rx_decimated_min_q)/(rx_decimated_max_q-rx_decimated_min_q))*(rx_scale_max_q - rx_scale_min_q) + rx_scale_min_q)
+
+rx_complex_symbols = np.array(rx_decimated_i) + 1j * np.array(rx_decimated_q)
+clean_measurement_window = rx_complex_symbols[int(filter_span):]
+rx_measured_power = np.mean(np.abs(clean_measurement_window)**2)
+scale_factor = np.sqrt(10.0 / rx_measured_power)
+rx_decimated_scaled_complex = rx_complex_symbols * scale_factor
+rx_decimated_scaled_i = rx_decimated_scaled_complex.real
+rx_decimated_scaled_q = rx_decimated_scaled_complex.imag
 
 rx_decimated_output = [complex(i, q) for i, q in zip(rx_decimated_scaled_i, rx_decimated_scaled_q)]
 plot_unit_circle(rx_decimated_output, 'RESCALED RECEIVE DATA')
