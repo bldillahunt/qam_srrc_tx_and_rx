@@ -202,6 +202,15 @@ def time_domain_plot(signal_time, sample_rate, plot_title:str, signal_input):
 	plt.grid(True)
 	plt.show()
 
+def eye_diagram_plot(sample_width, plot_title:str, signal_input):
+	x_axis_data = np.arange(0, sample_width)
+	plt.plot(x_axis_data, signal_input, color='blue')
+	plt.xlabel("Samples")
+	plt.ylabel("Amplitude")
+	plt.title(plot_title)
+	plt.grid(True)
+	plt.show()
+
 def plot_unit_circle(symbol_data, plot_title):
 	x_coords = [c.real for c in symbol_data]
 	y_coords = [c.imag for c in symbol_data]
@@ -404,6 +413,30 @@ def generate_rrc_taps(num_taps, alpha, Ts, Fs):
 #	h_rrc /= np.sqrt(np.sum(h_rrc**2))
 	h_rrc /= (1.0 / SAMPLES_PER_SYMBOL)
 	return t, h_rrc
+
+def add_awgn_oversampled(signal, ebno_db, samples_per_symbol=8, bits_per_symbol=4):
+    """
+    Adds complex AWGN to an oversampled signal based on target Eb/N0.
+    """
+    # 1. Convert Eb/N0 to Es/N0 (Energy per Symbol)
+    esno_db = ebno_db + 10 * np.log10(bits_per_symbol)
+    esno_linear = 10 ** (esno_db / 10)
+    
+    # 2. Measure the average power of your oversampled signal
+    signal_power = np.mean(np.abs(signal) ** 2)
+    
+    # 3. Calculate required noise variance per sample, accounting for oversampling
+    # Total noise power in oversampled bandwidth = (Signal Power / Es/N0) * SPS
+    noise_power = (signal_power / esno_linear) * samples_per_symbol
+    
+    # 4. Generate complex Gaussian noise (divide power by 2 for I and Q channels)
+    noise_std = np.sqrt(noise_power / 2)
+    noise_i = np.random.normal(0, noise_std, signal.shape)
+    noise_q = np.random.normal(0, noise_std, signal.shape)
+    noise = noise_i + 1j * noise_q
+    
+    # 5. Return the noisy signal
+    return signal + noise
     
 # Note: The actual data throughput will be RF_SAMPLE_RATE/SAMPLES_PER_SYMBOL
 # The cutoff frequency should be greater than the symbol rate but less than the carrier
@@ -413,10 +446,10 @@ filter_span = input("Enter filter span: ")
 #cutoff_frequency = input("Enter cutoff frequency: ")
 SAMPLES_PER_SYMBOL = int(input("Enter samples per symbol: "))
 rolloff_factor = float(input("Enter the roll-off factor: "))
-phase_offset = int(input("Enter the number of clock shifts: "))
+phase_offset = 0	# int(input("Enter the number of clock shifts: "))
 enable_carrier = input("Enable carrier signals (Y = yes, N = no) ")
-enable_group_delay = input("Enable group delay (Y = yes, N = no) ")
-enable_cross_correlation = input("Enable cross correlation (Y = yes, N = no) ")
+enable_group_delay = "N"	# input("Enable group delay (Y = yes, N = no) ")
+enable_cross_correlation = "N"	# input("Enable cross correlation (Y = yes, N = no) ")
 
 DATA_SIZE = 2048
 DURATION = (DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL)/RF_SAMPLE_RATE
@@ -600,15 +633,15 @@ if (enable_carrier == 'Y'):
 
 	transmitted_signal = transmitter_i + transmitter_q
 	
+	receive_signal_noisy = add_awgn_oversampled(transmitted_signal, 50, SAMPLES_PER_SYMBOL, MODULATED_BITS)
+	
 	# RECEIVE SIDE
-	rx_t = np.linspace(0, len(transmitted_signal)/RF_SAMPLE_RATE, len(transmitted_signal), endpoint=False)
-#	local_oscillator_i = 1 * np.sin(2 * np.pi * CARRIER_FREQUENCY * rx_t)
-#	local_oscillator_q = 1 * np.cos(2 * np.pi * CARRIER_FREQUENCY * rx_t)
+	rx_t = np.linspace(0, len(receive_signal_noisy)/RF_SAMPLE_RATE, len(receive_signal_noisy), endpoint=False)
 	local_oscillator_i = 2 * np.cos(2 * np.pi * CARRIER_FREQUENCY * rx_t)
 	local_oscillator_q = -2 * np.sin(2 * np.pi * CARRIER_FREQUENCY * rx_t)
 	
-	received_signal_i = transmitted_signal * local_oscillator_i
-	received_signal_q = transmitted_signal * local_oscillator_q
+	received_signal_i = receive_signal_noisy * local_oscillator_i
+	received_signal_q = receive_signal_noisy * local_oscillator_q
 	
 	# Convert to complex
 	received_signal_complex = [complex(i, q) for i, q in zip(received_signal_i, received_signal_q)]
@@ -680,25 +713,37 @@ if (enable_filters == 'Y'):
 else:
 	rx_reduced = tx_reduced
 
-#----------<<<<<<<<<< STEP 7 >>>>>>>>>>----------
-
-#rx_decimated = signal.decimate(rx_reduced, SAMPLES_PER_SYMBOL, ftype='fir', zero_phase=True)
-#decimate_start = 0
-#decimate_stop = decimate_start + DATA_SIZE*8*SAMPLES_PER_SYMBOL
-#i = 0
-
-#not_satisfied = True
-
-#while (not_satisfied):
-#	decimate_start = i
-#	decimate_stop = decimate_start + DATA_SIZE*8*SAMPLES_PER_SYMBOL
-#	rx_decimated = rx_reduced[decimate_start:decimate_stop:SAMPLES_PER_SYMBOL]
-#	plot_unit_circle(rx_decimated, 'DECIMATED RECEIVE DATA')
-#	i = i + 1
+# Eye Diagram
 	
-#	if (input("Use this offset? Y or N: ") == 'Y'):
-#		not_satisfied = False
+eye_diagram_data_i = []
+eye_diagram_data_q = []
+eye_segment_size = 2 * SAMPLES_PER_SYMBOL
+segment_count = 1000
+start_index = 0
 
+for i in range (0, segment_count):
+	start_index = start_index + (eye_segment_size + SAMPLES_PER_SYMBOL) * i
+	
+	if (start_index < len(rx_reduced_i)+SAMPLES_PER_SYMBOL+eye_segment_size):
+		rx_float_i = [float(x) for x in rx_reduced_i[start_index:start_index+eye_segment_size]]
+		eye_diagram_data_i.append(rx_float_i)
+	
+	if (start_index < len(rx_reduced_q)+SAMPLES_PER_SYMBOL+eye_segment_size):
+		rx_float_q = [float(x) for x in rx_reduced_q[start_index:start_index+eye_segment_size]]
+		eye_diagram_data_q.append(rx_float_q)
+#	print("Eye diagram data")
+#	print(eye_diagram_data_i[i])
+#	print(eye_diagram_data_q[i])
+#	input("Press enter to continue")
+
+eye_data_i_np = np.array(eye_diagram_data_i)	
+eye_data_q_np = np.array(eye_diagram_data_q)
+
+eye_diagram_plot(eye_segment_size, "Receive Side Eye Diagram I", eye_data_i_np.T)
+eye_diagram_plot(eye_segment_size, "Receive Side Eye Diagram Q", eye_data_q_np.T)
+
+#----------<<<<<<<<<< STEP 7 >>>>>>>>>>----------
+# Decimation
 rx_rrc_delay = len(rx_srrc_taps_normalized) // 2
 optimal_offset = rx_rrc_delay % SAMPLES_PER_SYMBOL 
 rx_decimated = rx_reduced[optimal_offset::SAMPLES_PER_SYMBOL]
@@ -722,26 +767,8 @@ iq_time_domain_plot(len(rx_decimated_i)/RF_SAMPLE_RATE, RF_SAMPLE_RATE, 'Receive
 print_data_to_file(rx_decimated_i, 'rx_decimated_i.txt')
 print_data_to_file(rx_decimated_q, 'rx_decimated_q.txt')
 
-# Rescaling equation:
-# New value = ((old value - old min)/(old max - old min))x(new max - new min) + new min
-#rx_decimated_min_i = np.min(rx_decimated_i)
-#rx_decimated_max_i = np.max(rx_decimated_i)
-#rx_scale_min_i = -math.sqrt(3**2 + 3**2)
-#rx_scale_max_i = math.sqrt(3**2 + 3**2)
-
-#rx_decimated_min_q = np.min(rx_decimated_q)
-#rx_decimated_max_q = np.max(rx_decimated_q)
-#rx_scale_min_q = -math.sqrt(3**2 + 3**2)
-#rx_scale_max_q = math.sqrt(3**2 + 3**2)
-
-#rx_decimated_scaled_i = []
-#rx_decimated_scaled_q = []
-
-#for i in range(0, len(rx_decimated_i)):
-#	rx_decimated_scaled_i.append(((rx_decimated_i[i]-rx_decimated_min_i)/(rx_decimated_max_i-rx_decimated_min_i))*(rx_scale_max_i - rx_scale_min_i) + rx_scale_min_i)
-
-#for i in range(0, len(rx_decimated_q)):
-#	rx_decimated_scaled_q.append(((rx_decimated_q[i]-rx_decimated_min_q)/(rx_decimated_max_q-rx_decimated_min_q))*(rx_scale_max_q - rx_scale_min_q) + rx_scale_min_q)
+#----------<<<<<<<<<< STEP 8 >>>>>>>>>>----------
+# Rescale the decimated data
 
 rx_complex_symbols = np.array(rx_decimated_i) + 1j * np.array(rx_decimated_q)
 clean_measurement_window = rx_complex_symbols[int(filter_span):]
@@ -786,6 +813,8 @@ print_data_to_file(rx_binary_data, 'rx_binary_data.txt')
 
 print('length of rx_binary_data = ', len(rx_binary_data))
 
+#----------<<<<<<<<<< STEP 9 >>>>>>>>>>----------
+
 # Convert the binary array to 32 bit values
 
 # First, locate training pattern in the binary data
@@ -809,6 +838,8 @@ if (enable_cross_correlation == 'N'):
 else:
 	correlation = signal.correlate(rx_binary_data[0:63], reference_pattern, mode='full', method='fft')
 	start_index = np.argmax(np.abs(correlation))
+
+#----------<<<<<<<<<< STEP 10 >>>>>>>>>>----------
 	
 # Put the nibbles together to get 32 bit words
 rx_data_word = []
