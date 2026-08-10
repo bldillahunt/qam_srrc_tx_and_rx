@@ -450,8 +450,10 @@ phase_offset = 0	# int(input("Enter the number of clock shifts: "))
 enable_carrier = input("Enable carrier signals (Y = yes, N = no) ")
 enable_group_delay = "N"	# input("Enable group delay (Y = yes, N = no) ")
 enable_cross_correlation = "N"	# input("Enable cross correlation (Y = yes, N = no) ")
+noise_level_db = input("Enter noise level in dB: ")
+transmit_data_size = input("Enter the number of 32 bit patterns to transmit: ")
 
-DATA_SIZE = 2048
+DATA_SIZE = int(transmit_data_size)
 DURATION = (DATA_SIZE*int(INTEGER_BITS/MODULATED_BITS)*SAMPLES_PER_SYMBOL)/RF_SAMPLE_RATE
 
 if (SAMPLES_PER_SYMBOL == 8):
@@ -633,7 +635,7 @@ if (enable_carrier == 'Y'):
 
 	transmitted_signal = transmitter_i + transmitter_q
 	
-	receive_signal_noisy = add_awgn_oversampled(transmitted_signal, 50, SAMPLES_PER_SYMBOL, MODULATED_BITS)
+	receive_signal_noisy = add_awgn_oversampled(transmitted_signal, int(noise_level_db), SAMPLES_PER_SYMBOL, MODULATED_BITS)
 	
 	# RECEIVE SIDE
 	rx_t = np.linspace(0, len(receive_signal_noisy)/RF_SAMPLE_RATE, len(receive_signal_noisy), endpoint=False)
